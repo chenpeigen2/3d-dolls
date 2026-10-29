@@ -167,6 +167,34 @@ def lathe(name, profile_fn, depth_fn, nz=26, nrad=28):
     return _finish(name, verts, faces)
 
 
+def cubic_interp(x, xs, ys):
+    """标量三次 Hermite 插值，避免线性轮廓控制点产生横向折棱。"""
+    if x <= xs[0]:
+        return float(ys[0])
+    if x >= xs[-1]:
+        return float(ys[-1])
+
+    index = 0
+    while index + 1 < len(xs) and xs[index + 1] < x:
+        index += 1
+
+    x0, x1 = xs[index], xs[index + 1]
+    y0, y1 = ys[index], ys[index + 1]
+    span = x1 - x0
+    t = (x - x0) / span
+
+    previous = max(0, index - 1)
+    following = min(len(xs) - 1, index + 2)
+    m0 = (y1 - ys[previous]) / max(x1 - xs[previous], 1e-8)
+    m1 = (ys[following] - y0) / max(xs[following] - x0, 1e-8)
+
+    h00 = 2 * t ** 3 - 3 * t ** 2 + 1
+    h10 = t ** 3 - 2 * t ** 2 + t
+    h01 = -2 * t ** 3 + 3 * t ** 2
+    h11 = t ** 3 - t ** 2
+    return float(h00 * y0 + h10 * span * m0 + h01 * y1 + h11 * span * m1)
+
+
 def tube(name, path_fn, radius_fn, nseg=30, nrad=14):
     """沿任意路径扫掠的圆管（用于手臂、皮绳）。"""
 
@@ -218,6 +246,37 @@ def tube(name, path_fn, radius_fn, nseg=30, nrad=14):
     return _finish(name, verts, faces)
 
 
+def ribbon_limb(name, path_fn, width_fn, depth_fn, nseg=36, nrad=20):
+    """沿路径扫掠的扁椭圆布条，用于非圆管状的手臂。"""
+    verts = []
+    faces = []
+    up = Vector((0.0, 1.0, 0.0))
+
+    for index in range(nseg + 1):
+        t = index / nseg
+        point = Vector(path_fn(t))
+        before = Vector(path_fn(max(0.0, t - 0.002)))
+        after = Vector(path_fn(min(1.0, t + 0.002)))
+        tangent = (after - before).normalized()
+        side = tangent.cross(up).normalized()
+        if side.length < 0.01:
+            side = Vector((1.0, 0.0, 0.0))
+        for k in range(nrad):
+            angle = 2 * math.pi * k / nrad
+            vertex = point + side * (width_fn(t) * math.cos(angle)) + up * (depth_fn(t) * math.sin(angle))
+            verts.append(tuple(vertex))
+
+    for index in range(nseg):
+        lower = index * nrad
+        upper = (index + 1) * nrad
+        for k in range(nrad):
+            k2 = (k + 1) % nrad
+            faces.append((lower + k, lower + k2, upper + k2, upper + k))
+    faces.append(tuple(range(nrad - 1, -1, -1)))
+    faces.append(tuple(range(nseg * nrad, (nseg + 1) * nrad)))
+    return _finish(name, verts, faces)
+
+
 def ruffle_ring(name, major, minor, folds=16, fold_depth=0.16, nring=112, nrad=16, axial=0.0,
                 irregular=0.0):
     """抽褶布环：做青蛙眼眶那种一圈褶皱包边。
@@ -249,6 +308,38 @@ def ruffle_ring(name, major, minor, folds=16, fold_depth=0.16, nring=112, nrad=1
             faces.append((i * nrad + j, i2 * nrad + j, i2 * nrad + j2, i * nrad + j2))
 
     return _finish(name, verts, faces)
+
+
+def fabric_ruffle(name, inner, outer, folds=22, nring=192, nrad=7):
+    """薄片抽褶布环，而非弹簧状圆管。
+
+    内圈包住眼球，外圈是柔软的波浪布边；正反面都有布料，
+    背面由独立的眼球布底托封口。
+    """
+    verts = []
+    faces = []
+    for i in range(nring):
+        theta = 2 * math.pi * i / nring
+        wave = math.sin(theta * folds) + 0.42 * math.sin(theta * 3 + 0.6)
+        for j in range(nrad + 1):
+            f = j / nrad
+            radius = inner + (outer - inner) * f + 0.0045 * wave * f
+            x = radius * math.cos(theta)
+            z = radius * math.sin(theta)
+            y = 0.007 * wave * math.sin(math.pi * f * 0.9) + 0.005 * f * f
+            verts.append((x, y, z))
+
+    stride = nrad + 1
+    for i in range(nring):
+        i2 = (i + 1) % nring
+        for j in range(nrad):
+            faces.append((i * stride + j, i2 * stride + j, i2 * stride + j + 1, i * stride + j + 1))
+
+    obj = _finish(name, verts, faces)
+    solid = obj.modifiers.new("FabricThickness", "SOLIDIFY")
+    solid.thickness = 0.0028
+    solid.offset = 0.0
+    return obj
 
 
 def rounded_box(name, center, size, segments=2):
@@ -300,7 +391,7 @@ def image_material(name, base_color_image=None, normal_image=None, roughness_ima
         tex.extension = "REPEAT"
         normal_node = nodes.new("ShaderNodeNormalMap")
         normal_node.location = (-300, -100)
-        normal_node.inputs["Strength"].default_value = 1.35
+        normal_node.inputs["Strength"].default_value = 0.62 if "Fabric" in name or "Denim" in name else 0.85
         links.new(tex.outputs["Color"], normal_node.inputs["Color"])
         links.new(normal_node.outputs["Normal"], principled.inputs["Normal"])
 
@@ -315,8 +406,10 @@ def image_material(name, base_color_image=None, normal_image=None, roughness_ima
 
 def build_materials():
     materials = {}
+    fabric_base = "fabric_photo_basecolor.png" if os.path.exists(os.path.join(TEX_DIR, "fabric_photo_basecolor.png")) else "fabric_green_basecolor.png"
+    denim_base = "denim_photo_basecolor.png" if os.path.exists(os.path.join(TEX_DIR, "denim_photo_basecolor.png")) else "denim_basecolor.png"
     materials["fabric"] = image_material(
-        "FabricGreen", "fabric_green_basecolor.png", "fabric_green_normal.png",
+        "FabricGreen", fabric_base, "fabric_green_normal.png",
         "fabric_green_roughness.png", roughness=0.9,
     )
     materials["white"] = image_material(
@@ -328,7 +421,7 @@ def build_materials():
         "fabric_green_roughness.png", roughness=0.92,
     )
     materials["denim"] = image_material(
-        "DenimBlue", "denim_basecolor.png", "denim_normal.png",
+        "DenimBlue", denim_base, "denim_normal.png",
         "denim_roughness.png", roughness=0.82,
     )
     materials["leather"] = image_material(
@@ -346,7 +439,7 @@ def build_materials():
         "Brass", metallic=1.0, roughness=0.3, base_color=(0.76, 0.62, 0.28, 1.0),
     )
     materials["pupil"] = image_material(
-        "PupilBlack", metallic=0.0, roughness=0.14, base_color=(0.045, 0.045, 0.05, 1.0),
+        "PupilBlack", metallic=0.0, roughness=0.18, base_color=(0.008, 0.008, 0.010, 1.0),
     )
     materials["stitch"] = image_material(
         "StitchWhite", roughness=0.7, base_color=(0.92, 0.9, 0.85, 1.0),
@@ -361,6 +454,23 @@ def assign(obj, material, repeat=1.0):
     obj.data.materials.clear()
     obj.data.materials.append(material)
     smart_uv(obj, repeat=repeat)
+
+
+def assign_cylindrical(obj, material, repeat=1.0, height_repeat=None):
+    """为旋转体设置连续柱面 UV，避免智能展开在背面产生碎布片。"""
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
+    uv_layer = obj.data.uv_layers.active or obj.data.uv_layers.new(name="UVMap")
+    z_values = [vertex.co.z for vertex in obj.data.vertices]
+    z_min, z_max = min(z_values), max(z_values)
+    z_span = max(z_max - z_min, 1e-6)
+    v_repeat = height_repeat if height_repeat is not None else repeat
+
+    for loop in obj.data.loops:
+        vertex = obj.data.vertices[loop.vertex_index].co
+        u = (math.atan2(vertex.y, vertex.x) / (2 * math.pi) + 0.5) * repeat
+        v = (vertex.z - z_min) / z_span * v_repeat
+        uv_layer.data[loop.index].uv = (u, v)
 
 
 def assign_keep(obj, materials_list, repeat=1.0):
@@ -397,8 +507,8 @@ _TOP_Z = [0.945, 0.985, 1.030, 1.055, 1.075, 1.112, 1.140, 1.165, 1.180,
 # 缝合线：左侧略高，在 x ≈ -0.1 处达到最高，然后向右下沉
 _SEAM_X = [-0.415, -0.370, -0.330, -0.290, -0.250, -0.190, -0.120, -0.060, 0.0,
            0.060, 0.140, 0.200, 0.250, 0.290, 0.330, 0.375, 0.415]
-_SEAM_Z = [0.900, 0.897, 0.893, 0.886, 0.880, 0.918, 0.940, 0.944, 0.945,
-           0.938, 0.918, 0.896, 0.872, 0.860, 0.850, 0.842, 0.836]
+_SEAM_Z = [0.892, 0.880, 0.872, 0.878, 0.893, 0.920, 0.940, 0.949, 0.952,
+           0.946, 0.920, 0.893, 0.870, 0.852, 0.842, 0.840, 0.852]
 
 # 下颚下沿：中间最低，两端与缝合线合并成尖角
 _JAW_X = [-0.300, -0.260, -0.220, -0.160, -0.100, -0.050, 0.0, 0.070, 0.140,
@@ -413,8 +523,8 @@ def head_top(x):
 
 
 def seam_z(x):
-    """嘴部缝合线高度。"""
-    return float(np.interp(x, _SEAM_X, _SEAM_Z))
+    """嘴部缝合线高度，按原图放大后的控制点平滑插值。"""
+    return cubic_interp(x, _SEAM_X, _SEAM_Z)
 
 
 def jaw_bottom(x):
@@ -472,75 +582,157 @@ def _jaw_back(u, v):
     return (x, y + thickness, z)
 
 
+# 头部是完整的填充软体，不再用两片正面薄壳拼出厚度。
+# 每个高度分别控制横向与前后厚度；嘴部最宽，顶部与下巴逐渐收圆。
+_HEAD_PROFILE_Z = [0.782, 0.800, 0.835, 0.875, 0.940, 1.000, 1.070, 1.130, 1.183]
+_HEAD_PROFILE_RX = [0.035, 0.230, 0.405, 0.415, 0.408, 0.360, 0.285, 0.180, 0.018]
+_HEAD_PROFILE_RY = [0.025, 0.068, 0.118, 0.145, 0.152, 0.158, 0.145, 0.098, 0.016]
+
+
+def head_radii(z):
+    return (
+        float(cubic_interp(z, _HEAD_PROFILE_Z, _HEAD_PROFILE_RX)),
+        float(cubic_interp(z, _HEAD_PROFILE_Z, _HEAD_PROFILE_RY)),
+    )
+
+
+def mouth_relief(x, y, z):
+    """上下唇的柔软叠压：凹槽内收、下唇外鼓，并在侧缘平滑归零。"""
+    if y >= 0:
+        return 0.0
+    _, ry = head_radii(z)
+    front_weight = min(1.0, max(0.0, -y / max(ry, 1e-5))) ** 2
+    dz = z - seam_z(x)
+    groove = 0.018 * math.exp(-((dz / 0.013) ** 2))
+    lower_lip = 0.022 * math.exp(-(((dz + 0.043) / 0.042) ** 2))
+    upper_lip = 0.007 * math.exp(-(((dz - 0.025) / 0.032) ** 2))
+    return (groove - lower_lip - upper_lip) * front_weight
+
+
+def head_surface_y(x, z, front=True):
+    """头部椭圆截面上的前／后表面，供嘴缝与背部中缝贴合。"""
+    rx, ry = head_radii(z)
+    ratio = min(abs(x) / max(rx, 1e-5), 0.995)
+    depth = ry * math.sqrt(max(0.01, 1.0 - ratio * ratio))
+    if not front:
+        return depth
+    base = -depth
+    return base + mouth_relief(x, base, z)
+
+
 def build_head(materials):
-    """上唇片：宽扁的布片，中间鼓起圆丘，两眼长在两角。"""
-    head = pillow("Head", 52, 26, lambda u, v: _upper_front(u, v)[:3], _upper_back)
-    assign(head, materials["fabric"], repeat=1.35)
+    """宽嘴、圆顶、圆下巴的一体式布偶头，背面同样有自然体积。"""
+
+    def profile(t):
+        z = _HEAD_PROFILE_Z[0] + (_HEAD_PROFILE_Z[-1] - _HEAD_PROFILE_Z[0]) * t
+        rx, _ = head_radii(z)
+        # 极轻微的手工不对称，不做生硬的绝对镜像
+        cx = 0.004 * math.sin(math.pi * t) - 0.003 * t
+        return (cx, z, rx, 0.0)
+
+    def depth(t):
+        z = _HEAD_PROFILE_Z[0] + (_HEAD_PROFILE_Z[-1] - _HEAD_PROFILE_Z[0]) * t
+        return head_radii(z)[1]
+
+    head = lathe("Head", profile, depth, nz=72, nrad=72)
+    for vertex in head.data.vertices:
+        vertex.co.y += mouth_relief(vertex.co.x, vertex.co.y, vertex.co.z)
+    head.data.update()
+    assign_cylindrical(head, materials["fabric"], repeat=2.40, height_repeat=2.0)
     add_subsurf(head, 1, 2)
     return head
 
 
-def build_mouth_lip(materials):
-    """下颚：缝合线下方那片厚布，最低处垂到 z ≈ 0.79。"""
-    jaw = pillow("MouthJaw", 34, 16, _jaw_front, _jaw_back)
-    assign(jaw, materials["fabric"], repeat=1.5)
-    add_subsurf(jaw, 1, 2)
-    return jaw
-
-
 def build_mouth_seam(materials):
-    """嘴部缝合线：一道深色滚边，标示上下两片的拼接。"""
+    """沿实体头部正面贴合的嘴部滚边，左右一直延伸到嘴角。"""
 
     def seam_path(t):
-        x = JAW_LEFT + (JAW_RIGHT - JAW_LEFT) * t
-        return Vector((x, seam_y(x) - 0.005, seam_z(x)))
+        x = -0.405 + 0.810 * t
+        z = seam_z(x)
+        return Vector((x, head_surface_y(x, z, True) - 0.0025, z))
 
-    seam = tube("MouthSeam", seam_path, lambda t: 0.0085, nseg=56, nrad=10)
+    seam = tube("MouthSeam", seam_path, lambda t: 0.0026, nseg=104, nrad=10)
     assign(seam, materials["fabric_dark"], repeat=2.2)
     add_subsurf(seam, 1, 1)
     return seam
 
 
+def build_back_seam(materials):
+    """背部只补一条同布料中缝，不添加凭空想象的图案。"""
+
+    def seam_path(t):
+        z = 0.805 + 0.352 * t
+        x = 0.002 * math.sin(t * math.pi * 2)
+        return Vector((x, head_surface_y(x, z, False) + 0.0018, z))
+
+    seam = tube("BackCenterSeam", seam_path, lambda t: 0.0022, nseg=52, nrad=8)
+    assign(seam, materials["fabric_dark"], repeat=1.0)
+    return seam
+
+
 def build_body(materials):
-    """躯干：细长，肩部被宽大的头部遮住，下面接背带裤。"""
+    """椭圆截面的填充躯干，肩、腰与背部都连续收圆。"""
 
-    def front(u, v):
-        x = -0.110 + 0.220 * u
-        z = 0.600 + 0.270 * v
-        bulge = ((1 - (2 * u - 1) ** 2) * (1 - (2 * v - 1) ** 2)) ** 0.35
-        y = -0.112 * bulge - 0.004
-        return (x, y, z)
+    body_z = [0.560, 0.590, 0.680, 0.770, 0.840, 0.880]
+    body_rx = [0.050, 0.092, 0.118, 0.112, 0.090, 0.052]
+    body_ry = [0.042, 0.075, 0.094, 0.092, 0.072, 0.040]
 
-    def back(u, v):
-        x = -0.110 + 0.220 * u
-        z = 0.600 + 0.270 * v
-        bulge = ((1 - (2 * u - 1) ** 2) * (1 - (2 * v - 1) ** 2)) ** 0.35
-        y = 0.060 * bulge + 0.010
-        return (x, y, z)
+    def profile(t):
+        z = body_z[0] + (body_z[-1] - body_z[0]) * t
+        return (0.0, z, float(cubic_interp(z, body_z, body_rx)), 0.0)
 
-    body = pillow("Body", 26, 24, front, back)
-    assign(body, materials["fabric"], repeat=1.7)
+    def depth(t):
+        z = body_z[0] + (body_z[-1] - body_z[0]) * t
+        return float(cubic_interp(z, body_z, body_ry))
+
+    body = lathe("Body", profile, depth, nz=36, nrad=40)
+    assign_cylindrical(body, materials["fabric"], repeat=2.0, height_repeat=1.6)
     add_subsurf(body, 1, 2)
     return body
 
 
 def build_arm(side, materials):
-    """细长下垂的手臂：肩膀在头部下方，向外斜垂。"""
+    """扁椭圆截面的布手臂：肩部贴身、自然下垂，外沿带一条细侧缝。"""
     sign = -1.0 if side == "L" else 1.0
 
     def path(t):
-        x = sign * (0.118 + 0.205 * t ** 1.35)
-        z = 0.780 - 0.400 * t
-        y = -0.058 - 0.046 * math.sin(math.pi * t * 0.9)
+        # 肩端埋在躯干内，沿肩线逐渐露出；不在身体外侧留下平封口。
+        x = sign * (0.075 + 0.215 * t + 0.020 * math.sin(math.pi * t))
+        z = 0.795 - 0.405 * t
+        y = 0.006 - 0.048 * math.sin(math.pi * t * 0.82) - 0.014 * t
         return Vector((x, y, z))
 
-    def radius(t):
-        return 0.060 - 0.030 * t ** 0.8
+    def width(t):
+        base = 0.058 - 0.022 * t
+        tip = math.sqrt(max(0.035, 1.0 - (max(0.0, t - 0.82) / 0.18) ** 2))
+        return base * (0.88 + 0.12 * math.sin(math.pi * t)) * tip
 
-    arm = tube(f"Arm.{side}", path, radius, nseg=28, nrad=16)
+    def depth(t):
+        base = 0.027 - 0.011 * t
+        tip = math.sqrt(max(0.035, 1.0 - (max(0.0, t - 0.82) / 0.18) ** 2))
+        return base * (0.90 + 0.10 * math.sin(math.pi * t)) * tip
+
+    arm = ribbon_limb(f"Arm.{side}", path, width, depth, nseg=40, nrad=24)
     assign(arm, materials["fabric"], repeat=1.9)
-    add_subsurf(arm, 1, 2)
-    return arm
+
+    def seam_path(t):
+        point = path(t)
+        point.x += sign * width(t) * 0.90
+        point.y -= 0.002
+        return point
+
+    seam = tube(f"ArmSeam.{side}", seam_path, lambda t: 0.0018, nseg=44, nrad=6)
+    assign(seam, materials["fabric_dark"], repeat=1.0)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    seam.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.join()
+    joined = bpy.context.object
+    joined.name = f"Arm.{side}"
+    add_subsurf(joined, 1, 2)
+    return joined
 
 
 def build_leg(side, materials):
@@ -563,14 +755,14 @@ def build_leg(side, materials):
 
 
 # 裤腿轮廓控制点：(高度比例, 宽度系数)——上窄下胖，接近灯笼造型
-_PANT_SHAPE_T = [0.00, 0.06, 0.16, 0.32, 0.50, 0.68, 0.84, 1.00]
-_PANT_SHAPE_V = [0.58, 0.86, 0.98, 1.00, 0.98, 0.93, 0.85, 0.74]
+_PANT_SHAPE_T = [0.00, 0.04, 0.14, 0.32, 0.52, 0.70, 0.86, 1.00]
+_PANT_SHAPE_V = [0.42, 0.72, 0.94, 1.00, 0.98, 0.91, 0.80, 0.64]
 
 PANT_Z0, PANT_Z1 = 0.095, 0.630
 
 
 def pant_shape(t):
-    return float(np.interp(t, _PANT_SHAPE_T, _PANT_SHAPE_V))
+    return float(cubic_interp(t, _PANT_SHAPE_T, _PANT_SHAPE_V))
 
 
 def pant_center(side, t):
@@ -589,44 +781,59 @@ def build_pant_leg(side, materials):
         return (cx, z, rx, 0.052)
 
     def depth(t):
-        return 0.126 * pant_shape(t)
+        # 前后厚度独立控制：裆顶和裤脚收拢，腿肚饱满，侧视不再是长方形。
+        depth_shape = float(cubic_interp(t, _PANT_SHAPE_T, [0.38, 0.66, 0.90, 1.00, 0.96, 0.85, 0.70, 0.54]))
+        return 0.136 * depth_shape
 
-    leg = lathe(f"PantLeg.{side}", profile, depth, nz=30, nrad=32)
-    assign(leg, materials["denim"], repeat=1.7)
+    leg = lathe(f"PantLeg.{side}", profile, depth, nz=42, nrad=44)
+    assign_cylindrical(leg, materials["denim"], repeat=2.0, height_repeat=1.8)
     add_subsurf(leg, 1, 2)
     return leg
 
 
 def build_stitching(materials):
-    """沿裤腿轮廓走的白色装饰缝线。"""
+    """贴合裤布正面和裤脚的细针脚，不在侧面悬浮成白色方块。"""
     objs = []
 
+    def pant_point(side, t, across):
+        z = PANT_Z0 + (PANT_Z1 - PANT_Z0) * t
+        cx = pant_center(side, t)
+        rx = 0.150 * pant_shape(t)
+        depth_shape = float(cubic_interp(t, _PANT_SHAPE_T, [0.38, 0.66, 0.90, 1.00, 0.96, 0.85, 0.70, 0.54]))
+        ry = 0.136 * depth_shape
+        x = cx + across * rx
+        y = -ry * math.sqrt(max(0.02, 1.0 - across * across)) - 0.0022
+        return Vector((x, y, z))
+
     for side in ("L", "R"):
-        sign = -1.0 if side == "L" else 1.0
-        # 外沿（剪影边缘）与内沿各一列虚线
-        for edge in (-1.0, 1.0):
-            count = 11
-            for index in range(count):
-                t = 0.10 + 0.82 * (index / (count - 1))
+        for edge in (-0.80, 0.80):
+            for index in range(12):
+                t = 0.10 + 0.80 * index / 11
+
+                def dash_path(u, side=side, t=t, edge=edge):
+                    local_t = t + (u - 0.5) * 0.030
+                    return pant_point(side, local_t, edge)
+
+                dash = tube(f"Stitch.{side}.{edge}.{index}", dash_path,
+                            lambda t: 0.0018, nseg=2, nrad=6)
+                objs.append(dash)
+
+        # 裤脚前半圈的短针脚
+        for index in range(7):
+            t = 0.065
+            angle = math.pi + 0.30 + (math.pi - 0.60) * index / 6
+
+            def hem_path(u, side=side, t=t, angle=angle):
+                a = angle + (u - 0.5) * 0.075
                 z = PANT_Z0 + (PANT_Z1 - PANT_Z0) * t
                 cx = pant_center(side, t)
                 rx = 0.150 * pant_shape(t)
-                px = cx + edge * (rx + 0.008)
-                dash = rounded_box(f"Stitch.{side}.{edge}.{index}", (px, 0.0, z), (0.011, 0.013, 0.030))
-                objs.append(dash)
+                depth_shape = float(cubic_interp(t, _PANT_SHAPE_T, [0.38, 0.66, 0.90, 1.00, 0.96, 0.85, 0.70, 0.54]))
+                ry = 0.136 * depth_shape
+                return Vector((cx + rx * math.cos(a), ry * math.sin(a) - 0.002, z))
 
-        # 裤脚一圈
-        hem_t = 0.075
-        hem_z = PANT_Z0 + (PANT_Z1 - PANT_Z0) * hem_t
-        cx = pant_center(side, hem_t)
-        rx = 0.150 * pant_shape(hem_t)
-        ry = 0.126 * pant_shape(hem_t)
-        for index in range(7):
-            angle = math.pi * (index / 6.0) + math.pi
-            px = cx - rx * math.cos(angle) * 0.96
-            py = ry * math.sin(angle) * 0.96
-            dash = rounded_box(f"Stitch.{side}.hem.{index}", (px, py, hem_z), (0.018, 0.008, 0.009))
-            dash.rotation_euler = (0.0, 0.0, angle)
+            dash = tube(f"Stitch.{side}.hem.{index}", hem_path,
+                        lambda t: 0.0018, nseg=2, nrad=6)
             objs.append(dash)
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -641,30 +848,41 @@ def build_stitching(materials):
 
 
 def build_eye(side, materials):
-    """凸起的白眼球 + 黑眼珠，外圈一圈抽褶绿布。"""
+    """凸起的布眼白、亮面眼珠、抽褶布边和封闭的绿色布底托。"""
     sign = -1.0 if side == "L" else 1.0
     center_x = sign * 0.262
     center_z = 1.115
 
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=40, ring_count=28, radius=0.056,
-                                        location=(center_x, -0.034, center_z))
-    white = bpy.context.object
-    white.name = f"EyeWhite.{side}"
-    white.scale = (1.0, 0.72, 1.0)
+    # 从背面看也必须是一只完整的布眼睛，而不是空心圆环。
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=36, ring_count=24, radius=0.079,
+                                        location=(center_x, -0.090, center_z))
+    socket = bpy.context.object
+    socket.name = f"EyeSocket.{side}"
+    socket.scale = (1.0, 0.52, 1.0)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.shade_smooth()
-    assign(white, materials["white"], repeat=1.6)
+    assign(socket, materials["fabric_dark"], repeat=1.2)
 
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=28, ring_count=20, radius=0.017,
-                                        location=(center_x - sign * 0.005, -0.074, center_z - 0.002))
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=32, radius=0.056,
+                                        location=(center_x, -0.121, center_z))
+    white = bpy.context.object
+    white.name = f"EyeWhite.{side}"
+    white.scale = (1.0, 1.05, 1.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.shade_smooth()
+    assign(white, materials["white"], repeat=1.4)
+
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=24, radius=0.017,
+                                        location=(center_x - sign * 0.005, -0.181, center_z - 0.002))
     pupil = bpy.context.object
     pupil.name = f"Pupil.{side}"
-    pupil.scale = (1.0, 0.78, 1.0)
+    pupil.scale = (1.0, 0.70, 1.0)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.shade_smooth()
     assign(pupil, materials["pupil"], repeat=1.0)
 
     bpy.ops.object.select_all(action="DESELECT")
+    socket.select_set(True)
     white.select_set(True)
     pupil.select_set(True)
     bpy.context.view_layer.objects.active = white
@@ -673,40 +891,58 @@ def build_eye(side, materials):
     eye.name = f"Eye.{side}"
     add_subsurf(eye, 1, 1)
 
-    # 抽褶布环：正面朝向观察者，褶皱沿轴向聚拢，像布料被抽紧的眼眶
-    # 抽褶布环：紧紧贴着眼白的一圈密集褶皱
-    ruffle = ruffle_ring(f"Eyelid.{side}", 0.082, 0.022, folds=30, fold_depth=0.20,
-                          nring=192, nrad=20, axial=0.010, irregular=0.30)
-    ruffle.rotation_euler = (math.radians(-10.0), 0.0, math.radians(-sign * 10.0))
-    ruffle.location = (center_x, -0.030, center_z)
-    assign(ruffle, materials["fabric"], repeat=1.7)
+    ruffle = fabric_ruffle(f"Eyelid.{side}", 0.059, 0.096, folds=18, nring=176, nrad=7)
+    ruffle.rotation_euler = (math.radians(-8.0), 0.0, math.radians(-sign * 8.0))
+    ruffle.location = (center_x, -0.111, center_z)
+    assign(ruffle, materials["fabric"], repeat=1.3)
     add_subsurf(ruffle, 1, 1)
 
     return eye, ruffle
 
 
 def build_bowtie(materials):
-    """红白格纹蝴蝶结。"""
+    """有中心收褶、自然外展翼片和浅色缝边的薄布蝴蝶结。"""
     objs = []
+    trim_objs = []
 
     for side in ("L", "R"):
         sign = -1.0 if side == "L" else 1.0
 
         def wing(u, v, sign=sign):
-            # u: 中心结 → 外端；v: 上 → 下
-            x = sign * (0.032 + 0.104 * u)
-            half_height = 0.050 * (0.86 + 0.14 * math.sin(math.pi * min(u * 0.85 + 0.18, 1.0)))
+            # 中心收拢、外端展开，外缘上下角往回收，避免两块矩形布。
+            corner = abs(2 * v - 1) ** 2
+            x = sign * (0.012 + 0.132 * u - 0.016 * corner * u ** 4)
+            half_height = 0.016 + 0.056 * u ** 0.82
             z = 0.752 + (v - 0.5) * 2 * half_height
-            bulge = math.sin(math.pi * min(u * 0.88 + 0.12, 1.0)) * (1 - (2 * v - 1) ** 2)
-            y = -0.152 - 0.020 * max(bulge, 0.0) ** 0.7
+            z += sign * 0.009 * u * (v - 0.5)
+            z += 0.005 * math.sin(math.pi * u) * (v - 0.5)
+            bulge = math.sin(math.pi * u) * math.sin(math.pi * v)
+            pleat = math.cos((v - 0.5) * math.pi * 4 + u * 0.8) * math.sin(math.pi * u)
+            y = -0.102 - 0.028 * bulge + 0.010 * pleat + 0.005 * u ** 3
             return (x, y, z)
 
         def wing_back(u, v, sign=sign):
             front = wing(u, v, sign)
-            return (front[0], front[1] + 0.026, front[2])
+            return (front[0], front[1] + 0.008, front[2])
 
-        mesh = pillow(f"BowWing.{side}", 20, 14, wing, wing_back)
+        mesh = pillow(f"BowWing.{side}", 28, 20, wing, wing_back)
         objs.append(mesh)
+
+        # 原图翼片边缘有一圈很细的米白色缝边。
+        for edge_v in (0.0, 1.0):
+            def edge_path(t, wing=wing, edge_v=edge_v):
+                point = Vector(wing(0.08 + 0.92 * t, edge_v))
+                point.y -= 0.0015
+                return point
+            trim_objs.append(tube(f"BowTrim.{side}.{edge_v}", edge_path,
+                                  lambda t: 0.0013, nseg=28, nrad=6))
+
+        def outer_path(t, wing=wing):
+            point = Vector(wing(1.0, t))
+            point.y -= 0.0015
+            return point
+        trim_objs.append(tube(f"BowTrim.{side}.outer", outer_path,
+                              lambda t: 0.0013, nseg=22, nrad=6))
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objs:
@@ -718,11 +954,20 @@ def build_bowtie(materials):
     assign(bow, materials["gingham"], repeat=1.0)
     add_subsurf(bow, 1, 2)
 
-    wrap = rounded_box("BowWrap", (0.0, -0.166, 0.752), (0.036, 0.034, 0.034))
+    wrap = rounded_box("BowWrap", (0.0, -0.108, 0.752), (0.038, 0.024, 0.044))
     assign(wrap, materials["wrap"], repeat=1.0)
     add_subsurf(wrap, 1, 1)
 
-    return bow, wrap
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in trim_objs:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = trim_objs[0]
+    bpy.ops.object.join()
+    trim = bpy.context.object
+    trim.name = "BowTrim"
+    assign(trim, materials["stitch"], repeat=1.0)
+
+    return bow, wrap, trim
 
 
 def build_suspenders(materials):
@@ -737,7 +982,7 @@ def build_suspenders(materials):
         def strap(u, v, top_x=top_x, bottom_x=bottom_x, sign=sign):
             # u: 上 → 下；v: 横向
             x = top_x + (bottom_x - top_x) * u
-            z = 0.790 - 0.440 * u
+            z = 0.700 - 0.350 * u
             width = 0.0180
             px = x + (v - 0.5) * 2 * width
             y = -0.152 + 0.020 * math.sin(math.pi * u) + 0.004 * u
@@ -764,7 +1009,7 @@ def build_suspenders(materials):
     for side in ("L", "R"):
         sign = -1.0 if side == "L" else 1.0
         z = 0.612
-        u = (0.790 - z) / 0.440
+        u = (0.700 - z) / 0.350
         x = sign * (0.092 + (0.058 - 0.092) * u)
         y = -0.152 + 0.020 * math.sin(math.pi * u) + 0.004 * u
 
@@ -781,6 +1026,12 @@ def build_suspenders(materials):
 
         frame = tube(f"Buckle.{side}", frame_path, lambda t: 0.0068, nseg=56, nrad=10)
         buckles.append(frame)
+
+        def pin_path(t, x=x, y=y, z=z):
+            return Vector((x - 0.020 + 0.040 * t, y - 0.012, z))
+
+        pin = tube(f"BucklePin.{side}", pin_path, lambda t: 0.0032, nseg=3, nrad=8)
+        buckles.append(pin)
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in buckles:
@@ -916,7 +1167,6 @@ def build():
 
     print("building body ...")
     head = build_head(materials)
-    mouth_lip = build_mouth_lip(materials)
     mouth_seam = build_mouth_seam(materials)
     body = build_body(materials)
     arm_l = build_arm("L", materials)
@@ -933,7 +1183,7 @@ def build():
     bpy.ops.object.join()
     pants = bpy.context.object
     pants.name = "Pants"
-    assign(pants, materials["denim"], repeat=1.7)
+    # 保留两条裤腿各自连续的柱面 UV，合并后不再用智能展开打碎。
     add_subsurf(pants, 1, 2)
 
     stitching = build_stitching(materials)
@@ -943,7 +1193,7 @@ def build():
     eye_r, eyelid_r = build_eye("R", materials)
 
     print("building accessories ...")
-    bow, bow_wrap = build_bowtie(materials)
+    bow, bow_wrap, bow_trim = build_bowtie(materials)
     straps, buckles = build_suspenders(materials)
     rope, ring, tag, connector = build_hanger(materials)
 
@@ -957,8 +1207,8 @@ def build():
         parent_to(obj, pivot)
     parent_to(assembly, pivot)
 
-    for obj in (head, mouth_lip, mouth_seam, body, arm_l, arm_r, foot_l, foot_r, pants, stitching,
-                eye_l, eye_r, eyelid_l, eyelid_r, bow, bow_wrap, straps, buckles):
+    for obj in (head, mouth_seam, body, arm_l, arm_r, foot_l, foot_r, pants, stitching,
+                eye_l, eye_r, eyelid_l, eyelid_r, bow, bow_wrap, bow_trim, straps, buckles):
         parent_to(obj, assembly)
 
     # 层级需要从根到叶依次建立，保证父级先存在

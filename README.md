@@ -195,6 +195,22 @@ npm run build
 - `index.html` 不缓存，带哈希的 JS/CSS/GLB 可设置长期缓存。
 - 部署后务必访问**生产构建**验证，而不是只看开发服务器。
 
+### 本项目服务器
+
+当前版本已部署到：<http://47.100.205.31:4173/>。
+
+服务器目录为 `/opt/frog-3d-web/releases/`，`current` 软链接指向当前版本，
+`frog-3d-web.service` 通过 systemd 常驻并随系统启动。重新部署：
+
+```bash
+npm run build
+DEPLOY_HOST=47.100.205.31 DEPLOY_USER=root DEPLOY_PASSWORD='你的密码' npm run deploy
+```
+
+也可以用 `DEPLOY_PRIVATE_KEY=/path/to/key` 代替密码。凭据只从环境变量读取，
+不会写入仓库。`npm run deploy:inspect` 只检查环境，不上传或修改服务。
+如果 4173 被非本项目进程占用，脚本会停止而不会强行结束其他程序。
+
 ## 已知限制
 
 - 侧面与背面依据照片推断补全，未取得实物多角度照片，可能与实物存在偏差。

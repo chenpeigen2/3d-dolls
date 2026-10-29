@@ -12,7 +12,7 @@
 | 3D 模型（源文件） | `assets/source/Frog.blend` | `scripts/blender/build_frog.py` 程序化重建 | 项目自有 |
 | 3D 模型（导出） | `assets/source/frog-v1.glb` | Blender glTF 导出 | 项目自有 |
 | 3D 模型（线上） | `public/models/frog-v1.glb` | `scripts/optimize-model.ts` 压缩 | 项目自有 |
-| 布料贴图 | `assets/textures-source/*.png` | `scripts/blender/texture_gen.py` 程序化生成 | 项目自有 |
+| 布料贴图 | `assets/textures-source/*.png` | `texture_gen.py` 程序化生成；`prepare-fabric-textures.mjs` 从项目原图干净区域提取织纹 | 见第 2 节原图授权说明 |
 | 首屏海报 | `public/images/frog-poster.*` | `scripts/generate-poster.ts` 从原图裁切 | 见第 2 节 |
 | 预览渲染图 | `assets/preview/*.png` | `scripts/blender/render_preview.py` | 项目自有 |
 
@@ -22,7 +22,8 @@
 
 | 文件 | 说明 | 用途 |
 |---|---|---|
-| `3d娃娃.jpeg` | 唯一的实拍参考照片，1206 × 1913 | 造型与配色参考；首屏海报裁切来源 |
+| `3d娃娃.jpeg` | 原图款实拍照片，1206 × 1913 | 造型与配色参考；首屏海报裁切来源 |
+| 本地 `assets/references/network/frog-00.jpg` ～ `frog-04.jpg` | 同一头部版型的卖家实物图，含不同服饰版本 | 上下唇、布眼、织纹与填充体积的内部参考；未确认授权，不纳入 Git 仓库或公开产物 |
 
 该照片是实物照片，著作权归拍摄者/权利人所有。
 
@@ -57,8 +58,9 @@
 - **HDRI 环境贴图**：场景环境光由 `StudioScene.tsx` 中的程序化 `Lightformer` 生成，
   不加载任何第三方 HDRI 文件，避免授权与体积问题。
 - **第三方 3D 模型**：网络上存在的通用青蛙模型未被使用，本项目模型完全自行重建。
-- **第三方商品图**：检索到的疑似同款商品页面仅用于人工判断结构，
-  其图片**没有**被复制、裁切或作为贴图进入任何产物。
+- **第三方商品图**：5 张同一头部版型的卖家实物图仅保存在本地 `assets/references/network/`，
+  因未确认授权而不纳入 Git 仓库；仅用于内部结构参考，没有作为贴图、海报或其他公开产物发布。
+  来源见 `assets/references/README.md`。
 - **外部字体**：未引入 webfont，界面使用系统字体栈。
 
 ## 5. 纹理与环境贴图注意事项

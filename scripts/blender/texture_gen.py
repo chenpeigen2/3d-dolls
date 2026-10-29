@@ -71,21 +71,27 @@ def _threads(res, count, axis="y"):
 
 
 def _linen_height(res=1024):
-    """亚麻/棉麻平纹织物的起伏高度场。"""
+    """粗织棉麻：清晰的经纬纱线、上下交织与少量竹节。"""
     rng = np.random.default_rng(2024)
+    count = 64
+    coords = np.linspace(0.0, count, res, endpoint=False)
+    grid_y, grid_x = np.meshgrid(coords, coords, indexing="ij")
+    ix = np.floor(grid_x).astype(np.int64)
+    iy = np.floor(grid_y).astype(np.int64)
+    fx = grid_x - ix
+    fy = grid_y - iy
 
-    warp = _threads(res, 64, axis="y")
-    weft = _threads(res, 64, axis="x")
-    weave = warp * weft
+    warp = np.sin(np.pi * fx) ** 0.42
+    weft = np.sin(np.pi * fy) ** 0.42
+    over_under = (ix + iy) % 2 == 0
+    woven = np.where(over_under, warp, weft)
 
-    # 竹节纱：粗细突变的纤维
-    slub = _fbm(res, 8, 3, rng)
-    slub = np.abs(slub - 0.5) * 1.6
-
-    # 细纤维噪声
+    # 纱线之间保留细缝，让 BaseColor 也能直接读出织纹。
+    yarn_variation = 0.92 + 0.16 * rng.random((count, count))
+    woven *= yarn_variation[iy % count, ix % count]
+    slub = _fbm(res, 12, 2, rng)
     fiber = _fbm(res, 128, 2, rng)
-
-    height = weave * 0.62 + slub * 0.26 + (fiber - 0.5) * 0.22
+    height = woven * 0.88 + slub * 0.08 + (fiber - 0.5) * 0.04
     return height - height.mean()
 
 
@@ -174,15 +180,15 @@ def generate_all():
 
     # --- 绿色棉麻 ---
     height = _linen_height(1024)
-    green = (0.478, 0.660, 0.198)
+    green = (0.420, 0.570, 0.190)
     _save_image("fabric_green_basecolor", _shade(green, height, 0.34))
-    _save_image("fabric_green_normal", _height_to_normal(height, 2.6))
-    _save_image("fabric_green_roughness", _roughness_from_height(height, 0.86, 0.14))
+    _save_image("fabric_green_normal", _height_to_normal(height, 3.0))
+    _save_image("fabric_green_roughness", _roughness_from_height(height, 0.88, 0.12))
     results.append("fabric_green")
 
     # --- 深一点的绿：用于嘴部缝线与布料折缝 ---
-    dark_green = (0.360, 0.500, 0.150)
-    _save_image("fabric_green_dark_basecolor", _shade(dark_green, height, 0.34))
+    dark_green = (0.270, 0.385, 0.105)
+    _save_image("fabric_green_dark_basecolor", _shade(dark_green, height, 0.18))
     results.append("fabric_green_dark")
 
     # --- 白色棉布（眼白）---
@@ -193,15 +199,15 @@ def generate_all():
 
     # --- 牛仔布 ---
     height = _denim_height(1024)
-    denim = (0.330, 0.455, 0.625)
-    _save_image("denim_basecolor", _shade(denim, height, 0.40))
-    _save_image("denim_normal", _height_to_normal(height, 2.2))
-    _save_image("denim_roughness", _roughness_from_height(height, 0.80, 0.16))
+    denim = (0.235, 0.355, 0.540)
+    _save_image("denim_basecolor", _shade(denim, height, 0.34))
+    _save_image("denim_normal", _height_to_normal(height, 2.8))
+    _save_image("denim_roughness", _roughness_from_height(height, 0.84, 0.14))
     results.append("denim")
 
     # --- 皮革（背带与皮绳）---
     height = _leather_height(512)
-    leather = (0.790, 0.575, 0.360)
+    leather = (0.600, 0.310, 0.125)
     _save_image("leather_basecolor", _shade(leather, height, 0.24))
     _save_image("leather_normal", _height_to_normal(height, 1.6))
     _save_image("leather_roughness", _roughness_from_height(height, 0.58, 0.22))
@@ -237,24 +243,35 @@ def _emblem(base):
 
 
 def _gingham(res=512):
-    """红白格纹布。"""
-    checks = 8
+    """原图的红棕细格纹，而不是大块红白棋盘格。"""
+    checks = 6
     coords = np.linspace(0.0, checks, res, endpoint=False)
     grid_y, grid_x = np.meshgrid(coords, coords, indexing="ij")
+    fx = grid_x - np.floor(grid_x)
+    fy = grid_y - np.floor(grid_y)
 
-    stripe_x = (np.floor(grid_x).astype(np.int64) % 2) == 0
-    stripe_y = (np.floor(grid_y).astype(np.int64) % 2) == 0
+    wine = np.array([0.355, 0.105, 0.085])
+    cream = np.array([0.835, 0.765, 0.660])
+    brown = np.array([0.185, 0.105, 0.085])
+    color = np.broadcast_to(wine, (res, res, 3)).copy()
 
-    red = np.array([0.639, 0.184, 0.153])[None, None, :]
-    cream = np.array([0.949, 0.929, 0.878])[None, None, :]
-    color = np.where((stripe_x & stripe_y)[:, :, None], red, cream)
-    color = np.where((stripe_x ^ stripe_y)[:, :, None], red * 0.72 + cream * 0.28, color)
+    broad_x = (fx < 0.060) | (fx > 0.955)
+    broad_y = (fy < 0.060) | (fy > 0.955)
+    thin_x = np.abs(fx - 0.52) < 0.018
+    thin_y = np.abs(fy - 0.52) < 0.018
+    dark_x = np.abs(fx - 0.75) < 0.038
+    dark_y = np.abs(fy - 0.75) < 0.038
 
-    # 布料织纹
+    color[dark_x | dark_y] = brown
+    color[broad_x | broad_y] = cream * 0.82 + wine * 0.18
+    color[broad_x & broad_y] = cream * 0.58 + brown * 0.42
+    color[thin_x | thin_y] = cream
+    color[thin_x & thin_y] = cream * 0.70 + wine * 0.30
+
     rng = np.random.default_rng(9)
     weave = _threads(res, 96, axis="y") * _threads(res, 96, axis="x")
-    shade = 1.0 - 0.22 * (1.0 - (weave - weave.min()) / max(weave.max() - weave.min(), 1e-6))
-    noise = (_fbm(res, 32, 2, rng) - 0.5) * 0.08
+    shade = 1.0 - 0.15 * (1.0 - (weave - weave.min()) / max(weave.max() - weave.min(), 1e-6))
+    noise = (_fbm(res, 32, 2, rng) - 0.5) * 0.045
     return np.clip(color * (shade + noise)[:, :, None], 0.0, 1.0)
 
 

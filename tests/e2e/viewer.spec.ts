@@ -40,7 +40,7 @@ test('模型请求失败时展示海报兜底与重试入口', async ({ page }) 
   const client = await page.context().newCDPSession(page);
   await client.send('Network.setCacheDisabled', { cacheDisabled: true });
 
-  await page.route('**/*.glb', (route) => route.abort());
+  await page.route(/\.glb(?:\?.*)?$/, (route) => route.abort());
 
   await page.reload();
   await expect(page.getByRole('heading', { name: '丑萌青蛙挂件' })).toBeVisible();
