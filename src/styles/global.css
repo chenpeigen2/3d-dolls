@@ -1,0 +1,352 @@
+:root {
+  --bg-warm: #ece4d7;
+  --bg-warm-deep: #ddd0bd;
+  --ink: #3a2f26;
+  --ink-soft: #6b5c4d;
+  --surface: rgba(255, 253, 248, 0.92);
+  --surface-border: rgba(120, 100, 78, 0.16);
+  --accent: #6d9a3c;
+  --shadow-soft: 0 12px 40px rgba(90, 72, 52, 0.14);
+  --radius: 14px;
+  --font-sans: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui,
+    -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: linear-gradient(170deg, #f6f1e7 0%, var(--bg-warm) 55%, var(--bg-warm-deep) 100%);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: clamp(16px, 3vw, 36px);
+  gap: clamp(12px, 2vw, 22px);
+}
+
+.app__header {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.app__eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.app__title {
+  margin: 0 0 8px;
+  font-size: clamp(24px, 5vw, 38px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.app__subtitle {
+  margin: 0;
+  font-size: clamp(13px, 2.2vw, 15px);
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.app__stage {
+  flex: 1;
+  min-height: min(64vh, 560px);
+  display: flex;
+}
+
+.app__footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  opacity: 0.75;
+}
+
+/* ---------- 查看器 ---------- */
+
+.viewer {
+  position: relative;
+  flex: 1;
+  min-height: min(56vh, 520px);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(255, 252, 245, 0.35);
+  box-shadow: var(--shadow-soft);
+  isolation: isolate;
+}
+
+.viewer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* ---------- 覆盖层 ---------- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(240, 233, 222, 0.86);
+  backdrop-filter: blur(6px);
+  z-index: 3;
+}
+
+.loading-card,
+.fallback-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  padding: 28px 30px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-soft);
+  text-align: center;
+}
+
+.loading-card__spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(109, 154, 60, 0.25);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.loading-card__text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.loading-card__progress {
+  width: 180px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(120, 100, 78, 0.14);
+  overflow: hidden;
+}
+
+.loading-card__bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.fallback-card__image {
+  width: min(220px, 60vw);
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: var(--shadow-soft);
+}
+
+.fallback-card__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.fallback-card__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 工具栏 ---------- */
+
+.toolbar {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+  background: #fffdf8;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.button--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* ---------- 材质卡片 ---------- */
+
+.material-card {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: min(320px, calc(100% - 28px));
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-soft);
+  z-index: 2;
+  animation: rise 0.22s ease;
+}
+
+.material-card__header,
+.help-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.material-card__title,
+.help-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.material-card__close,
+.help-panel__close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(120, 100, 78, 0.08);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.material-card__close:hover,
+.help-panel__close:hover {
+  background: rgba(120, 100, 78, 0.16);
+}
+
+.material-card__body {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+}
+
+/* ---------- 帮助面板 ---------- */
+
+.help-panel {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: min(300px, calc(100% - 28px));
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-soft);
+  z-index: 2;
+  animation: rise 0.22s ease;
+}
+
+.help-panel__list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ink-soft);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .app__stage {
+    min-height: 58vh;
+  }
+
+  .button__label {
+    display: none;
+  }
+
+  .button {
+    padding: 0 14px;
+  }
+
+  .material-card {
+    left: 12px;
+    right: 12px;
+    bottom: 68px;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

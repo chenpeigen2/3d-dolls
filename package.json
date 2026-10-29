@@ -1,0 +1,52 @@
+{
+  "name": "frog-3d-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "3D 布艺青蛙娃娃网页版：React + TypeScript + Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --force",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "assets:poster": "tsx scripts/generate-poster.ts",
+    "assets:model": "tsx scripts/optimize-model.ts",
+    "assets:model:build": "node scripts/blender/blender.mjs --background --factory-startup --python scripts/blender/build_frog.py",
+    "assets:preview": "node scripts/blender/blender.mjs --background --factory-startup --python scripts/blender/render_preview.py",
+    "verify:visual": "node scripts/screenshot.mjs",
+    "inspect:model": "tsx scripts/inspect-glb.mts"
+  },
+  "dependencies": {
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "@playwright/test": "^1.56.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "^28.0.0",
+    "sharp": "^0.35.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

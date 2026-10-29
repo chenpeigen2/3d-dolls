@@ -1,0 +1,34 @@
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+*.local
+.DS_Store
+Thumbs.db
+
+# 测试产物
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Python 字节码
+__pycache__/
+*.pyc
+
+# TypeScript 增量构建缓存
+*.tsbuildinfo
+
+# Blender 与大体积资产源文件（按需改用 Git LFS）
+assets/source/
+assets/textures-source/
+*.blend1
+
+# 建模预览与对比图：均为可再生产物（npm run assets:preview / node scripts/compare-head.mjs）
+assets/preview/
+
+# 编辑器
+.idea/
+.vscode/*
+!.vscode/extensions.json
